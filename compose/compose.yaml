@@ -1,0 +1,262 @@
+services:
+    nextcloud-aio-apache:
+        depends_on:
+            nextcloud-aio-notify-push:
+                condition: service_started
+                required: false
+            nextcloud-aio-nextcloud:
+                condition: service_started
+                required: false
+        image: ghcr.io/nextcloud-releases/aio-apache:20250811_115851
+        user: "33"
+        init: true
+        healthcheck:
+            start_period: 0s
+            test: /healthcheck.sh
+            interval: 30s
+            timeout: 30s
+            start_interval: 5s
+            retries: 3
+        ports:
+            - ${APACHE_IP_BINDING}:${APACHE_PORT}:${APACHE_PORT}/tcp
+            - ${APACHE_IP_BINDING}:${APACHE_PORT}:${APACHE_PORT}/udp
+        environment:
+            - NC_DOMAIN
+            - NEXTCLOUD_HOST=nextcloud-aio-nextcloud
+            - APACHE_HOST=nextcloud-aio-apache
+            - APACHE_PORT
+            - TZ=${TIMEZONE}
+            - APACHE_MAX_SIZE
+            - APACHE_MAX_TIME=${NEXTCLOUD_MAX_TIME}
+            - NOTIFY_PUSH_HOST=nextcloud-aio-notify-push
+        volumes:
+            - nextcloud_aio_nextcloud:/var/www/html:ro
+            - nextcloud_aio_apache:/mnt/data:rw
+        restart: unless-stopped
+        read_only: true
+        tmpfs:
+            - /var/log/supervisord
+            - /var/run/supervisord
+            - /usr/local/apache2/logs
+            - /tmp
+            - /home/www-data
+        cap_drop:
+            - NET_RAW
+
+    nextcloud-aio-database:
+        image: ghcr.io/nextcloud-releases/aio-postgresql:20250811_115851
+        user: "999"
+        init: true
+        healthcheck:
+            start_period: 0s
+            test: /healthcheck.sh
+            interval: 30s
+            timeout: 30s
+            start_interval: 5s
+            retries: 3
+        expose:
+            - "5432"
+        volumes:
+            - nextcloud_aio_database:/var/lib/postgresql/data:rw
+            - nextcloud_aio_database_dump:/mnt/data:rw
+        environment:
+            - POSTGRES_PASSWORD=${DATABASE_PASSWORD}
+            - POSTGRES_DB=nextcloud_database
+            - POSTGRES_USER=nextcloud
+            - TZ=${TIMEZONE}
+            - PGTZ=${TIMEZONE}
+        stop_grace_period: 1800s
+        restart: unless-stopped
+        shm_size: 268435456
+        read_only: true
+        tmpfs:
+            - /var/run/postgresql
+        cap_drop:
+            - NET_RAW
+
+    nextcloud-aio-nextcloud:
+        depends_on:
+            nextcloud-aio-database:
+                condition: service_started
+                required: false
+            nextcloud-aio-redis:
+                condition: service_started
+                required: false
+            minio:
+              condition: service_started
+              required: false
+        image: ghcr.io/nextcloud-releases/aio-nextcloud:20250811_115851
+        init: true
+        healthcheck:
+            start_period: 0s
+            test: /healthcheck.sh
+            interval: 30s
+            timeout: 30s
+            start_interval: 5s
+            retries: 3
+        expose:
+            - "9000"
+            - "9001"
+        volumes:
+            - nextcloud_aio_nextcloud:/var/www/html:rw
+            - ${NEXTCLOUD_DATADIR}:/mnt/ncdata:rw
+            - ${NEXTCLOUD_MOUNT}:${NEXTCLOUD_MOUNT}:rw
+            - ${NEXTCLOUD_TRUSTED_CACERTS_DIR}:/usr/local/share/ca-certificates:ro
+            - ${CUSTOM_SKELETON}:/mnt/skeleton/
+        environment:
+            - NEXTCLOUD_HOST=nextcloud-aio-nextcloud
+            - POSTGRES_HOST=nextcloud-aio-database
+            - POSTGRES_PORT=5432
+            - POSTGRES_PASSWORD=${DATABASE_PASSWORD}
+            - POSTGRES_DB=nextcloud_database
+            - POSTGRES_USER=nextcloud
+            - REDIS_HOST=nextcloud-aio-redis
+            - REDIS_HOST_PASSWORD=${REDIS_PASSWORD}
+            - APACHE_HOST=nextcloud-aio-apache
+            - APACHE_PORT
+            - NC_DOMAIN
+            - ADMIN_USER=${NEXTCLOUD_USER:-admin}
+            - ADMIN_PASSWORD=${NEXTCLOUD_PASSWORD}
+            - NEXTCLOUD_DATA_DIR=/mnt/ncdata
+            - OVERWRITEHOST=${NC_DOMAIN}
+            - OVERWRITEPROTOCOL=https
+            - NEXTCLOUD_MOUNT
+            - UPDATE_NEXTCLOUD_APPS
+            - TZ=${TIMEZONE}
+            - PHP_UPLOAD_LIMIT=${NEXTCLOUD_UPLOAD_LIMIT}
+            - PHP_MEMORY_LIMIT=${NEXTCLOUD_MEMORY_LIMIT}
+            - PHP_MAX_TIME=${NEXTCLOUD_MAX_TIME}
+            - TRUSTED_CACERTS_DIR=${NEXTCLOUD_TRUSTED_CACERTS_DIR}
+            - STARTUP_APPS=${NEXTCLOUD_STARTUP_APPS}
+            - ADDITIONAL_APKS=${NEXTCLOUD_ADDITIONAL_APKS}
+            - ADDITIONAL_PHP_EXTENSIONS=${NEXTCLOUD_ADDITIONAL_PHP_EXTENSIONS}
+            - INSTALL_LATEST_MAJOR
+            - REMOVE_DISABLED_APPS
+            # Skeleton config option
+            - NC_skeletondirectory=/mnt/skeleton
+            #  S3 config options 
+            - OBJECTSTORE_S3_BUCKET=${OBJECTSTORE_S3_BUCKET}
+            - OBJECTSTORE_S3_REGION=${OBJECTSTORE_S3_REGION}
+            - OBJECTSTORE_S3_HOST=${OBJECTSTORE_S3_HOST:-minio}
+            - OBJECTSTORE_S3_PORT=${OBJECTSTORE_S3_PORT:-9000}
+            - OBJECTSTORE_S3_KEY=${OBJECTSTORE_S3_KEY:-admin}
+            - OBJECTSTORE_S3_SECRET=${OBJECTSTORE_S3_SECRET:-changeme}
+            - OBJECTSTORE_S3_SSL=${OBJECTSTORE_S3_SSL:-false}
+            - OBJECTSTORE_S3_USEPATH_STYLE=${OBJECTSTORE_S3_USEPATH_STYLE:-true}
+        stop_grace_period: 600s
+        restart: unless-stopped
+        cap_drop:
+            - NET_RAW
+
+    nextcloud-aio-notify-push:
+        image: ghcr.io/nextcloud-releases/aio-notify-push:20250811_115851
+        user: "33"
+        init: true
+        healthcheck:
+            start_period: 0s
+            test: /healthcheck.sh
+            interval: 30s
+            timeout: 30s
+            start_interval: 5s
+            retries: 3
+        expose:
+            - "7867"
+        volumes:
+            - nextcloud_aio_nextcloud:/nextcloud:ro
+        environment:
+            - NC_DOMAIN
+            - NEXTCLOUD_HOST=nextcloud-aio-nextcloud
+            - TZ=${TIMEZONE}
+            - REDIS_HOST=nextcloud-aio-redis
+            - REDIS_HOST_PASSWORD=${REDIS_PASSWORD}
+            - POSTGRES_HOST=nextcloud-aio-database
+            - POSTGRES_PORT=5432
+            - POSTGRES_PASSWORD=${DATABASE_PASSWORD}
+            - POSTGRES_DB=nextcloud_database
+            - POSTGRES_USER=nextcloud
+        restart: unless-stopped
+        read_only: true
+        cap_drop:
+            - NET_RAW
+
+    nextcloud-aio-redis:
+        image: ghcr.io/nextcloud-releases/aio-redis:20250811_115851
+        user: "999"
+        init: true
+        healthcheck:
+            start_period: 0s
+            test: /healthcheck.sh
+            interval: 30s
+            timeout: 30s
+            start_interval: 5s
+            retries: 3
+        expose:
+            - "6379"
+        environment:
+            - REDIS_HOST_PASSWORD=${REDIS_PASSWORD}
+            - TZ=${TIMEZONE}
+        volumes:
+            - nextcloud_aio_redis:/data:rw
+        restart: unless-stopped
+        read_only: true
+        cap_drop:
+            - NET_RAW
+    
+    minio:
+      image: quay.io/minio/minio:RELEASE.2025-07-23T15-54-02Z
+      container_name: minio    
+      command: server /data --console-address ":9001"
+      environment:
+        - MINIO_ROOT_USER=${MINIO_ROOT_USER:-admin}
+        - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-changeme}
+      volumes:
+        - ./nextcloud-data-minio:/data
+      ports:
+        - "9000:9000"
+        - "9001:9001"
+      restart: unless-stopped
+    
+    caddy:
+        image: caddy:alpine
+        restart: always
+        container_name: caddy
+        volumes:
+            - caddy_certs:/certs
+            - caddy_config:/config
+            - caddy_data:/data
+            - caddy_sites:/srv
+        network_mode: "host"
+        configs:
+            - source: Caddyfile
+              target: /etc/caddy/Caddyfile
+configs:
+    Caddyfile:
+        content: |
+            # Adjust cloud.example.com to your domain below
+            https://nextcloud.local:443 {
+              tls internal
+              reverse_proxy 127.0.0.1:11000
+            }
+
+volumes:
+    nextcloud_aio_apache:
+        name: nextcloud_aio_apache
+    nextcloud_aio_database:
+        name: nextcloud_aio_database
+    nextcloud_aio_database_dump:
+        name: nextcloud_aio_database_dump
+    nextcloud_aio_nextcloud:
+        name: nextcloud_aio_nextcloud
+    nextcloud_aio_redis:
+        name: nextcloud_aio_redis
+    nextcloud_aio_nextcloud_data:
+        name: nextcloud_aio_nextcloud_data
+    caddy_certs:
+    caddy_config:
+    caddy_data:
+    caddy_sites:
+
+networks:
+    default:
+        driver: bridge
+
