@@ -53,10 +53,14 @@ By default, this stack uses `https://nextcloud.local` as the access point. To ma
    ```
    
 ### **4. Access Nextcloud**
-Open your browser and go to [https://nextcloud.local](https://nextcloud.local)
-
+Wait 30 seconds and then open your browser and go to [https://nextcloud.local](https://nextcloud.local)
    
    > 💡 Tip: If your browser shows a warning about the certificate, you can safely proceed for local development. Caddy generates a self-signed certificate for `nextcloud.local`.
+
+
+**Default login**
+* Username: `admin`
+* Password: `changeme`
  
 ## ⚙️ How it works 
 This stack leverages the modular architecture of **Nextcloud All-in-One (AIO)** to deliver a robust, scalable, and secure self-hosted cloud platform. Each container plays a specific role in the ecosystem.
